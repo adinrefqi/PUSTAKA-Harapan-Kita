@@ -336,6 +336,7 @@ async function muatBuku(keyword = "") {
       </div>
       <div class="item-aksi">
         <button class="ikon-btn" title="Edit" onclick="bukaFormBuku(${b.id})">✏️</button>
+        <button class="ikon-btn" title="Cetak Label/Barcode" onclick="cetakLabelBuku(${b.id})">🏷️</button>
         <button class="ikon-btn ikon-danger" title="Hapus" onclick="hapusBuku(${b.id})">🗑️</button>
       </div>
     </div>`).join("");
@@ -756,6 +757,68 @@ async function cetakKartu(id) {
 
   // Beri jeda agar QR & barcode selesai dirender sebelum dialog cetak
   setTimeout(() => window.print(), 350);
+}
+
+// ============================================================
+// LABEL BUKU (barcode + keterangan) — untuk ditempel di buku
+// ============================================================
+// Kode buku yang di-encode ke barcode (format: BUK<id>, mis. BUK7)
+function kodeBuku(b) { return "BUK" + b.id; }
+
+// HTML satu label buku (barcode digambar setelahnya via JsBarcode)
+function htmlLabelBuku(b) {
+  const kode = kodeBuku(b);
+  return `
+    <div class="label-buku">
+      <div class="label-head">
+        <img src="logo.png" alt="" class="label-logo" />
+        <div>
+          <div class="label-sekolah">Pustaka Tunas Harapan</div>
+          <div class="label-sub">SMP Tunas Hidup Harapan Kita</div>
+        </div>
+      </div>
+      <div class="label-judul">${esc(b.judul)}</div>
+      <div class="label-info">${esc(b.pengarang || "-")}${b.kategori ? " • " + esc(b.kategori) : ""}</div>
+      <svg class="label-barcode" data-kode="${kode}"></svg>
+      <div class="label-kode">${kode}</div>
+    </div>`;
+}
+
+// Gambar semua barcode pada elemen <svg data-kode> di dalam area struk
+function gambarBarcodeLabel() {
+  if (typeof JsBarcode === "undefined") return;
+  document.querySelectorAll("#struk .label-barcode").forEach((svg) => {
+    try {
+      JsBarcode(svg, svg.dataset.kode, { format: "CODE128", width: 1.6, height: 38, fontSize: 12, margin: 0, displayValue: false });
+    } catch (e) { /* abaikan kode yang tidak valid */ }
+  });
+}
+
+// Cetak SATU label buku
+async function cetakLabelBuku(id) {
+  const { data: b, error } = await db.from("buku").select("*").eq("id", id).single();
+  if (error) return toast("Error: " + error.message, true);
+
+  document.getElementById("struk").innerHTML = `<div class="label-grid label-tunggal">${htmlLabelBuku(b)}</div>`;
+  gambarBarcodeLabel();
+  setTimeout(() => window.print(), 350);
+}
+
+// Cetak BANYAK label sekaligus (semua buku yang sedang tampil di pencarian)
+async function cetakSemuaLabel() {
+  const keyword = document.getElementById("cari-buku").value.trim();
+  let query = db.from("buku").select("*").order("judul");
+  if (keyword) query = query.ilike("judul", `%${keyword}%`);
+  const { data, error } = await query;
+  if (error) return toast("Error: " + error.message, true);
+  if (!data.length) return toast("Tidak ada buku untuk dicetak", true);
+
+  if (!confirm(`Cetak ${data.length} label buku${keyword ? ' (hasil pencarian "' + keyword + '")' : ""}?`)) return;
+
+  document.getElementById("struk").innerHTML =
+    `<div class="label-grid">${data.map(htmlLabelBuku).join("")}</div>`;
+  gambarBarcodeLabel();
+  setTimeout(() => window.print(), 400);
 }
 
 // ============================================================

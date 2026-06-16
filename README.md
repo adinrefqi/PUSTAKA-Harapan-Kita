@@ -160,7 +160,9 @@ di header). Ubah kredensial lewat konstanta `LOGIN_USER` & `LOGIN_PASS` di `app.
 ## ✨ Fitur
 
 - **Dashboard** — total judul buku, total anggota, sedang dipinjam, dan **terlambat**.
-- **Buku** — lihat daftar, cari berdasarkan judul, tambah, edit, hapus, **ekspor CSV**.
+- **Buku** — lihat daftar, cari berdasarkan judul, tambah, edit, hapus, **ekspor CSV**,
+  **cetak label/barcode** buku (tombol 🏷️) untuk ditempel di sampul — bisa per buku
+  atau **cetak semua sekaligus** (mengikuti hasil pencarian). Kode buku: `BUK<id>`.
 - **Anggota** — lihat daftar, cari nama, tambah, edit, hapus, **ekspor CSV**,
   **cetak kartu anggota** ber-**QR code & barcode** (encode NIS).
 - **Peminjaman**
