@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Foreground ikon: tunas daun putih (tema "Tunas Harapan").
+     Berada di area aman 72x72 di tengah kanvas 108x108. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Batang/tunas -->
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="3.4"
+        android:strokeLineCap="round"
+        android:fillColor="#00000000"
+        android:pathData="M54,78 C54,64 54,56 54,44" />
+
+    <!-- Daun kiri -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M54,58 C44,58 35,52 32,42 C31,39 32,37 35,37 C46,37 54,45 54,57 Z" />
+
+    <!-- Daun kanan (lebih besar, atas) -->
+    <path
+        android:fillColor="#FFEFFAF2"
+        android:pathData="M54,50 C54,36 62,27 75,26 C78,26 80,28 79,31 C76,43 67,50 56,50 Z" />
+
+    <!-- Titik embun -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M54,84 m-3,0 a3,3 0 1,0 6,0 a3,3 0 1,0 -6,0" />
+</vector>

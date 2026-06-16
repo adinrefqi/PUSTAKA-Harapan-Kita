@@ -1,0 +1,9 @@
+Salin 4 file berikut ke folder ini (assets/www/):
+
+  - index.html
+  - config.js   (sudah diisi URL & anon key Supabase)
+  - app.js
+  - style.css
+
+MainActivity akan memuat: file:///android_asset/www/index.html
+Hapus file .txt ini setelah file web disalin (opsional).

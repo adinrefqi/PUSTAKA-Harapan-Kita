@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!-- Tema splash: latar gradient langsung jadi window background
+         agar tidak ada kedip putih sebelum layout tampil. -->
+    <style name="SplashTheme" parent="Theme.AppCompat.Light.NoActionBar">
+        <item name="android:windowBackground">@drawable/splash_background</item>
+        <item name="android:statusBarColor">#0A3622</item>
+        <item name="android:navigationBarColor">#0A3622</item>
+    </style>
+
+</resources>

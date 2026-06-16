@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Foreground launcher icon: logo.png di-inset agar berada di area aman
+     adaptive icon (margin ~20dp dari tepi kanvas 108dp).
+     Taruh logo.png di res/drawable/logo.png. -->
+<inset xmlns:android="http://schemas.android.com/apk/res/android"
+    android:drawable="@drawable/logo"
+    android:insetLeft="22dp"
+    android:insetTop="22dp"
+    android:insetRight="22dp"
+    android:insetBottom="22dp" />

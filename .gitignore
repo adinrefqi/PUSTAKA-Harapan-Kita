@@ -1,0 +1,26 @@
+# File sistem OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+
+# Node (kalau nanti dipakai)
+node_modules/
+
+# ====== Android build artifacts (tidak perlu masuk GitHub) ======
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/.idea/
+android/captures/
+*.apk
+*.aab
+*.iml
+
+# Log
+*.log

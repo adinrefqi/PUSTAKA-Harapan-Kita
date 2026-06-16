@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#0f5132" />
+  <title>Pustaka Tunas Harapan</title>
+  <!-- Favicon / ikon aplikasi (logo terbaru) -->
+  <link rel="icon" type="image/png" href="logo.png?v=2" />
+  <link rel="shortcut icon" type="image/png" href="logo.png?v=2" />
+  <link rel="apple-touch-icon" href="logo.png?v=2" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Sora:wght@600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- ===================== HALAMAN LOGIN ===================== -->
+  <div id="login-screen" class="login-screen">
+    <form id="login-form" class="login-card" onsubmit="return prosesLogin(event)">
+      <div class="login-logo"><img src="logo.png" alt="Logo" style="width: 100%; height: 100%; object-fit: contain;"></div>
+      <h1 class="login-title">Pustaka Tunas Harapan</h1>
+      <p class="login-sub">SMP Tunas Hidup Harapan Kita</p>
+
+      <label>Username
+        <input type="text" id="login-user" autocomplete="username" placeholder="Masukkan username" required />
+      </label>
+      <label>Password
+        <div class="input-pass">
+          <input type="password" id="login-pass" autocomplete="current-password" placeholder="Masukkan password" required />
+          <button type="button" class="toggle-pass" onclick="togglePassword(this)" aria-label="Tampilkan password">👁️</button>
+        </div>
+      </label>
+
+      <p id="login-error" class="login-error hidden">Username atau password salah.</p>
+
+      <button type="submit" class="btn btn-primary btn-block login-btn">🔓 Masuk</button>
+      <p class="login-hint">Akun uji: <b>admin</b> / <b>admin</b></p>
+    </form>
+  </div>
+
+  <!-- Indikator tarik-untuk-muat-ulang (pull to refresh) -->
+  <div id="ptr" class="ptr"><span class="ptr-ico">🔄</span></div>
+
+  <!-- ===================== HEADER ===================== -->
+  <header class="app-header">
+    <div class="app-header-inner">
+      <div class="brand">
+        <span class="logo"><img src="logo.png" alt="Logo" style="width: 80%; height: 80%; object-fit: contain;"></span>
+        <div>
+          <h1>Pustaka Tunas Harapan</h1>
+          <p class="subtitle">SMP Tunas Hidup Harapan Kita</p>
+        </div>
+      </div>
+      <div class="header-right">
+        <span class="header-badge">Perpustakaan Digital</span>
+        <button id="theme-toggle" class="theme-toggle" onclick="toggleTema()" title="Ganti tema" aria-label="Ganti tema">
+          <span class="theme-ico">🌙</span>
+        </button>
+        <button class="theme-toggle" onclick="logout()" title="Keluar" aria-label="Keluar">
+          <span>🚪</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- ===================== NAVIGASI TAB ===================== -->
+  <nav class="tabbar">
+    <button class="tab active" data-target="dashboard">
+      <span class="tab-ico">🏠</span><span class="tab-txt">Dashboard</span>
+    </button>
+    <button class="tab" data-target="buku">
+      <span class="tab-ico">📚</span><span class="tab-txt">Buku</span>
+    </button>
+    <button class="tab" data-target="anggota">
+      <span class="tab-ico">👥</span><span class="tab-txt">Anggota</span>
+    </button>
+    <button class="tab" data-target="peminjaman">
+      <span class="tab-ico">🔄</span><span class="tab-txt">Pinjam</span>
+    </button>
+  </nav>
+
+  <!-- Banner status koneksi / pesan -->
+  <div id="toast" class="toast hidden"></div>
+
+  <main class="container">
+
+    <!-- ===================== DASHBOARD ===================== -->
+    <section id="dashboard" class="page active">
+      <div class="hero">
+        <div class="hero-text">
+          <p class="hero-eyebrow">Selamat datang 👋</p>
+          <h2 class="hero-title">Ringkasan Perpustakaan</h2>
+          <p class="hero-sub">Pantau koleksi, anggota, dan peminjaman dalam satu layar.</p>
+        </div>
+        <button class="btn btn-ghost" onclick="muatDashboard()">🔃 Muat Ulang</button>
+      </div>
+
+      <div class="cards">
+        <div class="card card-accent-1">
+          <span class="card-icon">📚</span>
+          <span class="card-number" id="stat-buku">0</span>
+          <span class="card-label">Judul Buku</span>
+        </div>
+        <div class="card card-accent-2">
+          <span class="card-icon">👥</span>
+          <span class="card-number" id="stat-anggota">0</span>
+          <span class="card-label">Anggota</span>
+        </div>
+        <div class="card card-accent-3">
+          <span class="card-icon">🔄</span>
+          <span class="card-number" id="stat-dipinjam">0</span>
+          <span class="card-label">Sedang Dipinjam</span>
+        </div>
+        <div class="card card-accent-4">
+          <span class="card-icon">⏰</span>
+          <span class="card-number" id="stat-terlambat">0</span>
+          <span class="card-label">Terlambat</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== BUKU ===================== -->
+    <section id="buku" class="page">
+      <h2 class="page-title"><span class="page-ico">📚</span> Daftar Buku</h2>
+
+      <div class="toolbar">
+        <input type="search" id="cari-buku" placeholder="🔍 Cari judul buku..." />
+        <button class="btn btn-primary" onclick="bukaFormBuku()">+ Tambah Buku</button>
+        <button class="btn" onclick="exportBukuCSV()">⬇️ CSV</button>
+      </div>
+
+      <div id="list-buku" class="list"></div>
+    </section>
+
+    <!-- ===================== ANGGOTA ===================== -->
+    <section id="anggota" class="page">
+      <h2 class="page-title"><span class="page-ico">👥</span> Daftar Anggota</h2>
+
+      <div class="toolbar">
+        <input type="search" id="cari-anggota" placeholder="🔍 Cari nama anggota..." />
+        <button class="btn btn-primary" onclick="bukaFormAnggota()">+ Tambah Anggota</button>
+        <button class="btn" onclick="exportAnggotaCSV()">⬇️ CSV</button>
+      </div>
+
+      <div id="list-anggota" class="list"></div>
+    </section>
+
+    <!-- ===================== PEMINJAMAN ===================== -->
+    <section id="peminjaman" class="page">
+      <h2 class="page-title"><span class="page-ico">🔄</span> Peminjaman</h2>
+
+      <div class="panel">
+        <h3 class="panel-title">📥 Pinjam Buku</h3>
+        <label>Anggota
+          <select id="pinjam-anggota"></select>
+        </label>
+        <button class="btn btn-block" onclick="bukaScanner()">📷 Scan QR / Barcode Anggota</button>
+        <label>Buku (stok &gt; 0)
+          <select id="pinjam-buku"></select>
+        </label>
+        <button class="btn btn-primary btn-block" onclick="pinjamBuku()">📥 Pinjam</button>
+      </div>
+
+      <div class="subtabs">
+        <button class="subtab active" data-sub="sedang">Sedang Dipinjam</button>
+        <button class="subtab" data-sub="riwayat">Riwayat</button>
+        <button class="btn btn-sm export-kanan" onclick="exportPeminjamanCSV()">⬇️ CSV</button>
+      </div>
+
+      <div id="sub-sedang" class="subpage active">
+        <div id="list-peminjaman" class="list"></div>
+      </div>
+
+      <div id="sub-riwayat" class="subpage">
+        <div id="list-riwayat" class="list"></div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ===================== MODAL FORM ===================== -->
+  <div id="modal" class="modal-backdrop hidden">
+    <div class="modal">
+      <h3 id="modal-judul">Form</h3>
+      <div id="modal-body"></div>
+      <div class="modal-actions">
+        <button class="btn" onclick="tutupModal()">Batal</button>
+        <button class="btn btn-primary" id="modal-simpan">Simpan</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== MODAL SCANNER ===================== -->
+  <div id="scanner-modal" class="modal-backdrop hidden">
+    <div class="modal">
+      <h3>📷 Scan Kartu Anggota</h3>
+      <div id="scanner-view" class="scanner-view"></div>
+      <p id="scanner-status" class="scanner-status">Memulai kamera...</p>
+      <label>Atau ketik / scan NIS manual:
+        <input type="text" id="scanner-manual" placeholder="Masukkan NIS lalu klik Cari" />
+      </label>
+      <div class="modal-actions">
+        <button class="btn" onclick="tutupScanner()">Tutup</button>
+        <button class="btn btn-primary" onclick="cariAnggotaManual()">Cari</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== AREA STRUK (khusus cetak) ===================== -->
+  <div id="struk" class="struk-area"></div>
+
+  <!-- ===================== SCRIPTS ===================== -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <!-- Library QR code & barcode untuk kartu anggota -->
+  <script src="https://cdn.jsdelivr.net/gh/davidshimjs/qrcodejs/qrcode.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
+  <!-- Library scanner kamera (QR + barcode) -->
+  <script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
