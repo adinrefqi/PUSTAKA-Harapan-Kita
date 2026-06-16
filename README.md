@@ -171,6 +171,9 @@ di header). Ubah kredensial lewat konstanta `LOGIN_USER` & `LOGIN_PASS` di `app.
     - **Scan Kartu Anggota** → pilih anggota otomatis (dari NIS / `ANG<id>`).
     - **Scan Barcode Buku** → pilih buku otomatis (dari label `BUK<id>`),
       jadi tak perlu mencari satu per satu.
+    - **Scan untuk Kembalikan** → di tab "Sedang Dipinjam", scan barcode buku →
+      peminjaman aktifnya langsung ketemu → konfirmasi → kembali (stok & denda
+      otomatis).
     - Tersedia input manual (NIS / kode buku / judul) sebagai cadangan.
   - **Tanggal jatuh tempo otomatis** (default 7 hari) dengan penanda
     *Sisa N hari* / *Jatuh tempo hari ini* / *Terlambat N hari*.

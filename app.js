@@ -825,9 +825,10 @@ async function cetakSemuaLabel() {
 // SCANNER QR / BARCODE — pilih anggota ATAU buku lewat kamera
 // ============================================================
 let scannerAktif = null;
-let scannerMode = "anggota"; // "anggota" | "buku"
+let scannerMode = "anggota"; // "anggota" | "buku" | "kembali"
 
-// mode: "anggota" (scan NIS/ANG<id>) atau "buku" (scan BUK<id>)
+// mode: "anggota" (NIS/ANG<id>), "buku" (BUK<id> -> pilih utk pinjam),
+//       "kembali" (BUK<id> -> langsung cari peminjaman aktif & kembalikan)
 async function bukaScanner(mode = "anggota") {
   scannerMode = mode;
   const status = document.getElementById("scanner-status");
@@ -838,6 +839,10 @@ async function bukaScanner(mode = "anggota") {
   // Sesuaikan teks sesuai mode
   if (mode === "buku") {
     judul.textContent = "📷 Scan Barcode Buku";
+    labelManual.childNodes[0].nodeValue = "Atau ketik / scan kode buku manual:";
+    inputManual.placeholder = "Mis. BUK1 atau judul buku";
+  } else if (mode === "kembali") {
+    judul.textContent = "📷 Scan Buku untuk Kembalikan";
     labelManual.childNodes[0].nodeValue = "Atau ketik / scan kode buku manual:";
     inputManual.placeholder = "Mis. BUK1 atau judul buku";
   } else {
@@ -862,9 +867,9 @@ async function bukaScanner(mode = "anggota") {
       (teks) => onScanSukses(teks),                 // berhasil baca
       () => {}                                       // abaikan error per-frame
     );
-    status.textContent = mode === "buku"
-      ? "Arahkan kamera ke barcode pada label buku."
-      : "Arahkan kamera ke QR / barcode pada kartu anggota.";
+    status.textContent = mode === "anggota"
+      ? "Arahkan kamera ke QR / barcode pada kartu anggota."
+      : "Arahkan kamera ke barcode pada label buku.";
   } catch (e) {
     status.textContent = "Tidak bisa membuka kamera (" + e + "). Gunakan input manual di bawah.";
     scannerAktif = null;
@@ -873,7 +878,8 @@ async function bukaScanner(mode = "anggota") {
 
 async function onScanSukses(teks) {
   await stopScanner();
-  if (scannerMode === "buku") await pilihBukuDariKode(teks);
+  if (scannerMode === "kembali") await kembalikanDariKode(teks);
+  else if (scannerMode === "buku") await pilihBukuDariKode(teks);
   else await pilihAnggotaDariKode(teks);
 }
 
@@ -881,7 +887,8 @@ async function cariManual() {
   const kode = document.getElementById("scanner-manual").value.trim();
   if (!kode) return toast("Masukkan kode dulu", true);
   await stopScanner();
-  if (scannerMode === "buku") await pilihBukuDariKode(kode);
+  if (scannerMode === "kembali") await kembalikanDariKode(kode);
+  else if (scannerMode === "buku") await pilihBukuDariKode(kode);
   else await pilihAnggotaDariKode(kode);
 }
 
@@ -956,6 +963,52 @@ async function pilihBukuDariKode(kodeRaw) {
   } else {
     toast(`"${buku.judul}" tidak tersedia di daftar pinjam`, true);
   }
+}
+
+// Kembalikan buku dari hasil scan: cari peminjaman AKTIF (status 'dipinjam')
+// berdasarkan kode buku, lalu konfirmasi & kembalikan.
+async function kembalikanDariKode(kodeRaw) {
+  const kode = String(kodeRaw).trim();
+  let bukuId = null;
+  let judulBuku = "";
+
+  if (/^BUK\d+$/i.test(kode)) {
+    bukuId = parseInt(kode.slice(3));
+  } else {
+    // cari buku dari judul
+    const { data, error } = await db.from("buku").select("id,judul").ilike("judul", `%${kode}%`).limit(1);
+    if (error) { tutupScanner(); return toast("Error: " + error.message, true); }
+    if (data && data.length) { bukuId = data[0].id; judulBuku = data[0].judul; }
+  }
+
+  if (!bukuId) {
+    tutupScanner();
+    return toast(`Buku dengan kode "${kode}" tidak ditemukan`, true);
+  }
+
+  // Cari peminjaman aktif untuk buku ini (yang paling lama / terlama dipinjam)
+  const { data: pinjam, error } = await db
+    .from("peminjaman")
+    .select("id, buku:buku_id(judul), anggota:anggota_id(nama,kelas)")
+    .eq("buku_id", bukuId)
+    .eq("status", "dipinjam")
+    .order("tanggal_pinjam", { ascending: true })
+    .limit(1);
+
+  tutupScanner();
+  if (error) return toast("Error: " + error.message, true);
+
+  if (!pinjam || !pinjam.length) {
+    return toast(`Tidak ada peminjaman aktif untuk buku ini`, true);
+  }
+
+  const p = pinjam[0];
+  const judul = p.buku?.judul || judulBuku || ("Buku #" + bukuId);
+  const peminjam = p.anggota?.nama || "(anggota terhapus)";
+
+  if (!confirm(`Kembalikan buku ini?\n\n📕 ${judul}\n👤 Peminjam: ${peminjam}`)) return;
+
+  await kembalikanBuku(p.id, !!p.buku);
 }
 
 async function stopScanner() {
