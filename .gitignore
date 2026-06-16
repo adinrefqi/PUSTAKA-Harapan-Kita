@@ -8,6 +8,9 @@ desktop.ini
 .idea/
 *.swp
 
+# Setelan lokal Claude Code (tidak perlu masuk GitHub)
+.claude/
+
 # Node (kalau nanti dipakai)
 node_modules/
 
