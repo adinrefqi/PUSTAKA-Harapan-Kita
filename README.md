@@ -62,7 +62,8 @@ const SUPABASE_ANON_KEY = "eyJhbGciOi...isi-anon-key-kamu...";
 1. Di Supabase, buka menu **SQL Editor** → **New query**.
 2. Buka file `database.sql`, **copy seluruh isinya**, paste ke editor.
 3. Klik **Run** (atau `Ctrl+Enter`).
-4. Akan terbuat tabel `buku`, `anggota`, `peminjaman` beserta data dummy.
+4. Akan terbuat tabel `buku`, `eksemplar`, `anggota`, `peminjaman` beserta data dummy.
+   (`eksemplar` = salinan fisik dengan kode unik; `peminjaman` mengacu ke eksemplar.)
 
 > Script ini mengaktifkan **RLS** dengan policy **"allow all"** supaya mudah
 > diuji memakai anon key. **Saat produksi**, hapus policy tersebut dan buat
@@ -160,26 +161,30 @@ di header). Ubah kredensial lewat konstanta `LOGIN_USER` & `LOGIN_PASS` di `app.
 ## ✨ Fitur
 
 - **Dashboard** — total judul buku, total anggota, sedang dipinjam, dan **terlambat**.
-- **Buku** — lihat daftar, cari berdasarkan judul, tambah, edit, hapus, **ekspor CSV**,
-  **cetak label/barcode** buku (tombol 🏷️) untuk ditempel di sampul — bisa per buku
-  atau **cetak semua sekaligus** (mengikuti hasil pencarian). Kode buku: `BUK<id>`.
+- **Buku** — lihat daftar, cari judul, tambah, edit info, hapus, **ekspor CSV**.
+  - **Setiap eksemplar (fisik buku) punya KODE UNIK sendiri** (mis. `B001-01`,
+    `B001-02`). Satu judul bisa punya banyak salinan.
+  - Tombol 📦 **Kelola Eksemplar**: lihat/tambah/hapus salinan, cetak label per salinan.
+  - **Cetak label/barcode** (tombol 🏷️) — tiap eksemplar dapat label barcode unik
+    untuk ditempel; bisa per judul atau **cetak semua sekaligus**.
+  - Daftar menampilkan **Tersedia X/Total** (dihitung dari status eksemplar).
 - **Anggota** — lihat daftar, cari nama, tambah, edit, hapus, **ekspor CSV**,
   **cetak kartu anggota** ber-**QR code & barcode** (encode NIS).
 - **Peminjaman**
-  - Pinjam buku (pilih anggota + buku) → **stok berkurang otomatis**.
+  - Pinjam buku (pilih anggota + eksemplar) → eksemplar jadi **'dipinjam'**.
   - **Scan QR / barcode** lewat kamera (tombol 📷):
     - **Scan Kartu Anggota** → pilih anggota otomatis (dari NIS / `ANG<id>`).
-    - **Scan Barcode Buku** → pilih buku otomatis (dari label `BUK<id>`),
+    - **Scan Barcode Buku** → pilih eksemplar otomatis (dari kode unik `B001-02`),
       jadi tak perlu mencari satu per satu.
-    - **Scan untuk Kembalikan** → di tab "Sedang Dipinjam", scan barcode buku →
-      peminjaman aktifnya langsung ketemu → konfirmasi → kembali (stok & denda
-      otomatis).
-    - Tersedia input manual (NIS / kode buku / judul) sebagai cadangan.
+    - **Scan untuk Kembalikan** → di tab "Sedang Dipinjam", scan barcode eksemplar →
+      peminjaman aktifnya langsung ketemu (tepat, karena kode unik per fisik) →
+      konfirmasi → kembali (status & denda otomatis).
+    - Tersedia input manual (NIS / kode eksemplar / judul) sebagai cadangan.
   - **Tanggal jatuh tempo otomatis** (default 7 hari) dengan penanda
     *Sisa N hari* / *Jatuh tempo hari ini* / *Terlambat N hari*.
   - **Denda keterlambatan otomatis** (default Rp500/hari) — perkiraan denda
     tampil di item terlambat, denda final dihitung saat buku dikembalikan.
-  - Kembalikan buku → status jadi `kembali`, **stok bertambah otomatis**.
+  - Kembalikan buku → peminjaman `kembali`, eksemplar kembali **'tersedia'**.
   - Sub-tab **Sedang Dipinjam** & **Riwayat** (pengembalian, label
     *tepat waktu* / *terlambat*, denda per item, **total denda terkumpul**).
   - **Ekspor CSV** seluruh data peminjaman.

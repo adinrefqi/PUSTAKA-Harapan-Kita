@@ -776,6 +776,15 @@ input[type="search"]:focus {
 .kartu-barcode { display: block; margin: 12px auto 0; max-width: 100%; }
 .kartu-foot { text-align: center; font-size: 10px; color: #666; margin-top: 8px; }
 
+/* ---------------- Kelola Eksemplar (di dalam modal) ---------------- */
+.eks-list { max-height: 240px; overflow-y: auto; margin: 6px 0 10px; }
+.eks-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 4px;
+  border-bottom: 1px solid var(--garis);
+}
+.eks-kode { font-weight: 700; font-family: "Courier New", monospace; flex: 1; }
+
 /* ---------------- Label Buku (barcode, untuk ditempel) ---------------- */
 /* Grid agar muat banyak label per halaman saat cetak massal */
 .label-grid {

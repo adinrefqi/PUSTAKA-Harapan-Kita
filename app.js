@@ -316,14 +316,18 @@ async function muatDashboard() {
 async function muatBuku(keyword = "") {
   const wadah = document.getElementById("list-buku");
   wadah.innerHTML = skeletonItems();
-  let query = db.from("buku").select("*").order("judul");
+  // Ambil buku beserta eksemplar (untuk hitung total & tersedia)
+  let query = db.from("buku").select("*, eksemplar(id,status)").order("judul");
   if (keyword) query = query.ilike("judul", `%${keyword}%`);
 
   const { data, error } = await query;
   if (error) { wadah.innerHTML = ""; return toast("Error: " + error.message, true); }
   if (!data.length) { wadah.innerHTML = `<p class="empty">Tidak ada buku.</p>`; return; }
 
-  wadah.innerHTML = data.map((b) => `
+  wadah.innerHTML = data.map((b) => {
+    const total = (b.eksemplar || []).length;
+    const tersedia = (b.eksemplar || []).filter((e) => e.status === "tersedia").length;
+    return `
     <div class="item item-compact">
       <div class="item-cover">📖</div>
       <div class="item-body">
@@ -331,15 +335,16 @@ async function muatBuku(keyword = "") {
         <div class="item-meta">${esc(b.pengarang || "-")}${b.tahun ? " • " + esc(b.tahun) : ""}</div>
         <div class="item-tags">
           ${b.kategori ? `<span class="chip">${esc(b.kategori)}</span>` : ""}
-          <span class="chip ${b.stok > 0 ? "chip-stok" : "chip-habis"}">Stok ${b.stok}</span>
+          <span class="chip ${tersedia > 0 ? "chip-stok" : "chip-habis"}">Tersedia ${tersedia}/${total}</span>
         </div>
       </div>
       <div class="item-aksi">
-        <button class="ikon-btn" title="Edit" onclick="bukaFormBuku(${b.id})">✏️</button>
-        <button class="ikon-btn" title="Cetak Label/Barcode" onclick="cetakLabelBuku(${b.id})">🏷️</button>
+        <button class="ikon-btn" title="Edit info" onclick="bukaFormBuku(${b.id})">✏️</button>
+        <button class="ikon-btn" title="Kelola Eksemplar" onclick="kelolaEksemplar(${b.id})">📦</button>
         <button class="ikon-btn ikon-danger" title="Hapus" onclick="hapusBuku(${b.id})">🗑️</button>
       </div>
-    </div>`).join("");
+    </div>`;
+  }).join("");
 }
 
 // Cari buku (debounce sederhana)
@@ -350,33 +355,46 @@ document.getElementById("cari-buku").addEventListener("input", (e) => {
 });
 
 async function bukaFormBuku(id = null) {
-  let data = { judul: "", pengarang: "", kategori: "", stok: 0, tahun: "" };
+  let data = { judul: "", pengarang: "", kategori: "", tahun: "" };
   if (id) {
     const { data: row, error } = await db.from("buku").select("*").eq("id", id).single();
     if (error) return toast("Error: " + error.message, true);
     data = row;
   }
 
-  bukaModal(id ? "Edit Buku" : "Tambah Buku", `
+  // Saat TAMBAH buku baru: minta jumlah eksemplar awal (otomatis diberi kode unik).
+  const barisJumlah = id ? "" : `
+    <label>Jumlah eksemplar (salinan fisik)
+      <input type="number" id="f-jumlah" min="1" value="1" />
+    </label>`;
+
+  bukaModal(id ? "Edit Info Buku" : "Tambah Buku", `
     <label>Judul<input type="text" id="f-judul" value="${esc(data.judul)}" /></label>
     <label>Pengarang<input type="text" id="f-pengarang" value="${esc(data.pengarang)}" /></label>
     <label>Kategori<input type="text" id="f-kategori" value="${esc(data.kategori)}" /></label>
-    <label>Stok<input type="number" id="f-stok" min="0" value="${data.stok ?? 0}" /></label>
     <label>Tahun<input type="number" id="f-tahun" value="${data.tahun ?? ""}" /></label>
+    ${barisJumlah}
   `, async () => {
     const payload = {
       judul: document.getElementById("f-judul").value.trim(),
       pengarang: document.getElementById("f-pengarang").value.trim(),
       kategori: document.getElementById("f-kategori").value.trim(),
-      stok: parseInt(document.getElementById("f-stok").value) || 0,
       tahun: parseInt(document.getElementById("f-tahun").value) || null,
     };
     if (!payload.judul) return toast("Judul wajib diisi", true);
 
-    const res = id
-      ? await db.from("buku").update(payload).eq("id", id)
-      : await db.from("buku").insert(payload);
-    if (res.error) return toast("Gagal menyimpan: " + res.error.message, true);
+    if (id) {
+      // Edit: hanya perbarui info buku
+      const { error } = await db.from("buku").update(payload).eq("id", id);
+      if (error) return toast("Gagal menyimpan: " + error.message, true);
+    } else {
+      // Tambah: buat buku baru, lalu buat eksemplar sejumlah yang diminta
+      const jumlah = Math.max(1, parseInt(document.getElementById("f-jumlah").value) || 1);
+      const { data: bukuBaru, error } = await db.from("buku").insert(payload).select("id").single();
+      if (error) return toast("Gagal menyimpan: " + error.message, true);
+      const err2 = await tambahEksemplar(bukuBaru.id, jumlah);
+      if (err2) return toast("Buku dibuat, tapi eksemplar gagal: " + err2, true);
+    }
 
     tutupModal();
     toast("Buku tersimpan ✓");
@@ -384,11 +402,87 @@ async function bukaFormBuku(id = null) {
   });
 }
 
+// Buat N eksemplar baru untuk sebuah buku, kode unik berurutan (B<id>-NN).
+// Mengembalikan null jika sukses, atau pesan error.
+async function tambahEksemplar(bukuId, jumlah) {
+  // Cari nomor urut terakhir yang sudah ada agar kode tidak bentrok
+  const { data: ada, error: e1 } = await db.from("eksemplar").select("kode").eq("buku_id", bukuId);
+  if (e1) return e1.message;
+
+  const prefix = "B" + String(bukuId).padStart(3, "0") + "-";
+  let maksNomor = 0;
+  (ada || []).forEach((e) => {
+    const m = e.kode.match(/-(\d+)$/);
+    if (m) maksNomor = Math.max(maksNomor, parseInt(m[1]));
+  });
+
+  const baris = [];
+  for (let i = 1; i <= jumlah; i++) {
+    baris.push({
+      buku_id: bukuId,
+      kode: prefix + String(maksNomor + i).padStart(2, "0"),
+      status: "tersedia",
+    });
+  }
+  const { error: e2 } = await db.from("eksemplar").insert(baris);
+  return e2 ? e2.message : null;
+}
+
 async function hapusBuku(id) {
-  if (!confirm("Hapus buku ini? Data peminjaman terkait juga akan terhapus.")) return;
+  if (!confirm("Hapus buku ini beserta SEMUA eksemplar & data peminjamannya?")) return;
   const { error } = await db.from("buku").delete().eq("id", id);
   if (error) return toast("Gagal hapus: " + error.message, true);
   toast("Buku dihapus ✓");
+  muatBuku();
+}
+
+// ============================================================
+// KELOLA EKSEMPLAR (lihat / tambah / hapus salinan fisik per judul)
+// ============================================================
+async function kelolaEksemplar(bukuId) {
+  const { data: buku, error: eb } = await db.from("buku").select("judul").eq("id", bukuId).single();
+  if (eb) return toast("Error: " + eb.message, true);
+
+  const { data: list, error } = await db
+    .from("eksemplar").select("*").eq("buku_id", bukuId).order("kode");
+  if (error) return toast("Error: " + error.message, true);
+
+  const baris = (list || []).map((e) => `
+    <div class="eks-row">
+      <span class="eks-kode">${esc(e.kode)}</span>
+      <span class="chip ${e.status === "tersedia" ? "chip-ok" : "chip-late"}">${esc(e.status)}</span>
+      <button class="ikon-btn" title="Cetak label" onclick="cetakLabelEksemplar(${e.id})">🏷️</button>
+      <button class="ikon-btn ikon-danger" title="Hapus eksemplar"
+        onclick="hapusEksemplar(${e.id}, '${esc(e.status)}', ${bukuId})">🗑️</button>
+    </div>`).join("") || `<p class="empty">Belum ada eksemplar.</p>`;
+
+  bukaModal(`Eksemplar — ${esc(buku.judul)}`, `
+    <p class="item-meta">Total: ${(list || []).length} salinan</p>
+    <div class="eks-list">${baris}</div>
+    <label>Tambah eksemplar baru (jumlah)
+      <input type="number" id="f-tambah-eks" min="1" value="1" />
+    </label>
+    <button class="btn btn-primary btn-block" onclick="tambahEksemplarDariModal(${bukuId})">➕ Tambah Eksemplar</button>
+    <button class="btn btn-block" onclick="cetakLabelBuku(${bukuId})">🏷️ Cetak Semua Label Buku Ini</button>
+  `, null);
+}
+
+async function tambahEksemplarDariModal(bukuId) {
+  const jumlah = Math.max(1, parseInt(document.getElementById("f-tambah-eks").value) || 1);
+  const err = await tambahEksemplar(bukuId, jumlah);
+  if (err) return toast("Gagal: " + err, true);
+  toast(`${jumlah} eksemplar ditambahkan ✓`);
+  kelolaEksemplar(bukuId); // refresh modal
+  muatBuku();
+}
+
+async function hapusEksemplar(id, status, bukuId) {
+  if (status === "dipinjam") return toast("Tidak bisa hapus: eksemplar sedang dipinjam", true);
+  if (!confirm("Hapus eksemplar ini?")) return;
+  const { error } = await db.from("eksemplar").delete().eq("id", id);
+  if (error) return toast("Gagal hapus: " + error.message, true);
+  toast("Eksemplar dihapus ✓");
+  kelolaEksemplar(bukuId);
   muatBuku();
 }
 
@@ -487,23 +581,23 @@ document.querySelectorAll(".subtab").forEach((st) => {
   });
 });
 
-// Isi dropdown anggota & buku (hanya stok > 0)
+// Isi dropdown anggota & eksemplar (hanya eksemplar berstatus 'tersedia')
 async function isiDropdownPinjam() {
   const selAnggota = document.getElementById("pinjam-anggota");
   const selBuku = document.getElementById("pinjam-buku");
 
-  const [{ data: anggota }, { data: buku }] = await Promise.all([
+  const [{ data: anggota }, { data: eks }] = await Promise.all([
     db.from("anggota").select("id,nama,kelas").order("nama"),
-    db.from("buku").select("id,judul,stok").gt("stok", 0).order("judul"),
+    db.from("eksemplar").select("id,kode,buku:buku_id(judul)").eq("status", "tersedia").order("kode"),
   ]);
 
   selAnggota.innerHTML = (anggota || [])
     .map((a) => `<option value="${a.id}">${esc(a.nama)} (${esc(a.kelas || "-")})</option>`)
     .join("") || `<option value="">— belum ada anggota —</option>`;
 
-  selBuku.innerHTML = (buku || [])
-    .map((b) => `<option value="${b.id}">${esc(b.judul)} (stok ${b.stok})</option>`)
-    .join("") || `<option value="">— tidak ada buku tersedia —</option>`;
+  selBuku.innerHTML = (eks || [])
+    .map((e) => `<option value="${e.id}">${esc(e.buku?.judul || "?")} — ${esc(e.kode)}</option>`)
+    .join("") || `<option value="">— tidak ada eksemplar tersedia —</option>`;
 }
 
 // Daftar buku yang sedang dipinjam (join nama buku & anggota)
@@ -513,7 +607,7 @@ async function muatDaftarDipinjam() {
 
   const { data, error } = await db
     .from("peminjaman")
-    .select("id, tanggal_pinjam, tanggal_jatuh_tempo, status, buku:buku_id(judul), anggota:anggota_id(nama,kelas)")
+    .select("id, tanggal_pinjam, tanggal_jatuh_tempo, status, eksemplar:eksemplar_id(kode, buku:buku_id(judul)), anggota:anggota_id(nama,kelas)")
     .eq("status", "dipinjam")
     .order("tanggal_jatuh_tempo", { ascending: true });
 
@@ -535,17 +629,19 @@ async function muatDaftarDipinjam() {
       }
     }
     const late = sisa !== null && sisa < 0;
+    const judul = p.eksemplar?.buku?.judul || "(buku terhapus)";
+    const kode = p.eksemplar?.kode || "-";
     return `
     <div class="item item-compact${late ? " late" : ""}">
       <div class="item-cover ${late ? "cover-late" : ""}">📕</div>
       <div class="item-body">
-        <div class="item-title">${esc(p.buku?.judul || "(buku terhapus)")}</div>
-        <div class="item-meta">👤 ${esc(p.anggota?.nama || "(anggota terhapus)")} • ${esc(p.anggota?.kelas || "-")}</div>
+        <div class="item-title">${esc(judul)}</div>
+        <div class="item-meta">🏷️ ${esc(kode)} • 👤 ${esc(p.anggota?.nama || "(anggota terhapus)")} • ${esc(p.anggota?.kelas || "-")}</div>
         <div class="item-meta">📅 Tempo: ${esc(p.tanggal_jatuh_tempo || "-")}</div>
         <div class="item-tags">${statusChip}${dendaChip}</div>
       </div>
       <div class="item-aksi">
-        <button class="ikon-btn ikon-primary" title="Kembalikan" onclick="kembalikanBuku(${p.id}, ${p.buku ? "true" : "false"})">📤</button>
+        <button class="ikon-btn ikon-primary" title="Kembalikan" onclick="kembalikanBuku(${p.id})">📤</button>
         <button class="ikon-btn" title="Cetak Struk" onclick="cetakStruk(${p.id})">🖨️</button>
       </div>
     </div>`;
@@ -559,7 +655,7 @@ async function muatRiwayat() {
 
   const { data, error } = await db
     .from("peminjaman")
-    .select("id, tanggal_pinjam, tanggal_jatuh_tempo, tanggal_kembali, denda, buku:buku_id(judul), anggota:anggota_id(nama,kelas)")
+    .select("id, tanggal_pinjam, tanggal_jatuh_tempo, tanggal_kembali, denda, eksemplar:eksemplar_id(kode, buku:buku_id(judul)), anggota:anggota_id(nama,kelas)")
     .eq("status", "kembali")
     .order("tanggal_kembali", { ascending: false })
     .limit(100);
@@ -580,12 +676,14 @@ async function muatRiwayat() {
         : `<span class="chip chip-ok">Tepat waktu</span>`;
     }
     const dendaChip = p.denda > 0 ? `<span class="chip chip-late">Denda ${rupiah(p.denda)}</span>` : "";
+    const judul = p.eksemplar?.buku?.judul || "(buku terhapus)";
+    const kode = p.eksemplar?.kode || "-";
     return `
     <div class="item item-compact">
       <div class="item-cover">📗</div>
       <div class="item-body">
-        <div class="item-title">${esc(p.buku?.judul || "(buku terhapus)")}</div>
-        <div class="item-meta">👤 ${esc(p.anggota?.nama || "(anggota terhapus)")} • ${esc(p.anggota?.kelas || "-")}</div>
+        <div class="item-title">${esc(judul)}</div>
+        <div class="item-meta">🏷️ ${esc(kode)} • 👤 ${esc(p.anggota?.nama || "(anggota terhapus)")} • ${esc(p.anggota?.kelas || "-")}</div>
         <div class="item-meta">📅 Kembali: ${esc(p.tanggal_kembali || "-")}</div>
         <div class="item-tags">${statusChip}${dendaChip}</div>
       </div>
@@ -596,21 +694,22 @@ async function muatRiwayat() {
   }).join("");
 }
 
-// Pinjam buku: buat record + stok -1
+// Pinjam: buat record peminjaman untuk EKSEMPLAR tertentu + tandai 'dipinjam'
 async function pinjamBuku() {
   const anggotaId = parseInt(document.getElementById("pinjam-anggota").value);
-  const bukuId = parseInt(document.getElementById("pinjam-buku").value);
-  if (!anggotaId || !bukuId) return toast("Pilih anggota dan buku dulu", true);
+  const eksemplarId = parseInt(document.getElementById("pinjam-buku").value);
+  if (!anggotaId || !eksemplarId) return toast("Pilih anggota dan buku dulu", true);
 
-  // Ambil stok terkini
-  const { data: buku, error: e1 } = await db.from("buku").select("stok").eq("id", bukuId).single();
+  // Pastikan eksemplar masih tersedia
+  const { data: eks, error: e1 } = await db
+    .from("eksemplar").select("status").eq("id", eksemplarId).single();
   if (e1) return toast("Error: " + e1.message, true);
-  if (buku.stok <= 0) return toast("Stok buku habis", true);
+  if (eks.status !== "tersedia") return toast("Eksemplar ini sedang dipinjam", true);
 
   // Buat peminjaman (jatuh tempo = hari ini + LAMA_PINJAM_HARI)
   const tglPinjam = hariIni();
   const { error: e2 } = await db.from("peminjaman").insert({
-    buku_id: bukuId,
+    eksemplar_id: eksemplarId,
     anggota_id: anggotaId,
     tanggal_pinjam: tglPinjam,
     tanggal_jatuh_tempo: tambahHari(tglPinjam, LAMA_PINJAM_HARI),
@@ -618,19 +717,19 @@ async function pinjamBuku() {
   });
   if (e2) return toast("Gagal meminjam: " + e2.message, true);
 
-  // Kurangi stok
-  const { error: e3 } = await db.from("buku").update({ stok: buku.stok - 1 }).eq("id", bukuId);
-  if (e3) return toast("Peminjaman dibuat, tapi stok gagal diperbarui: " + e3.message, true);
+  // Tandai eksemplar jadi 'dipinjam'
+  const { error: e3 } = await db.from("eksemplar").update({ status: "dipinjam" }).eq("id", eksemplarId);
+  if (e3) return toast("Peminjaman dibuat, tapi status eksemplar gagal: " + e3.message, true);
 
   toast("Buku berhasil dipinjam ✓");
   muatPeminjaman();
 }
 
-// Kembalikan buku: status -> kembali, tanggal_kembali, stok +1
-async function kembalikanBuku(peminjamanId, bukuMasihAda) {
-  // Ambil data peminjaman untuk tahu buku_id & jatuh tempo
+// Kembalikan: status peminjaman -> kembali, dan eksemplar -> tersedia
+async function kembalikanBuku(peminjamanId) {
+  // Ambil data peminjaman untuk tahu eksemplar & jatuh tempo
   const { data: pinjam, error: e1 } = await db
-    .from("peminjaman").select("buku_id, tanggal_jatuh_tempo").eq("id", peminjamanId).single();
+    .from("peminjaman").select("eksemplar_id, tanggal_jatuh_tempo").eq("id", peminjamanId).single();
   if (e1) return toast("Error: " + e1.message, true);
 
   // Hitung denda = jumlah hari terlambat x TARIF_DENDA
@@ -645,10 +744,9 @@ async function kembalikanBuku(peminjamanId, bukuMasihAda) {
     .eq("id", peminjamanId);
   if (e2) return toast("Gagal mengembalikan: " + e2.message, true);
 
-  // Tambah stok (jika buku masih ada)
-  if (bukuMasihAda && pinjam.buku_id) {
-    const { data: buku } = await db.from("buku").select("stok").eq("id", pinjam.buku_id).single();
-    if (buku) await db.from("buku").update({ stok: buku.stok + 1 }).eq("id", pinjam.buku_id);
+  // Kembalikan status eksemplar jadi 'tersedia'
+  if (pinjam.eksemplar_id) {
+    await db.from("eksemplar").update({ status: "tersedia" }).eq("id", pinjam.eksemplar_id);
   }
 
   toast(denda > 0 ? `Buku dikembalikan ✓ — Denda ${rupiah(denda)} (telat ${hariTelat} hari)` : "Buku dikembalikan ✓");
@@ -661,7 +759,7 @@ async function kembalikanBuku(peminjamanId, bukuMasihAda) {
 async function cetakStruk(id) {
   const { data: p, error } = await db
     .from("peminjaman")
-    .select("id, tanggal_pinjam, tanggal_jatuh_tempo, tanggal_kembali, denda, status, buku:buku_id(judul), anggota:anggota_id(nama,kelas,nis)")
+    .select("id, tanggal_pinjam, tanggal_jatuh_tempo, tanggal_kembali, denda, status, eksemplar:eksemplar_id(kode, buku:buku_id(judul)), anggota:anggota_id(nama,kelas,nis)")
     .eq("id", id).single();
   if (error) return toast("Error: " + error.message, true);
 
@@ -694,7 +792,8 @@ async function cetakStruk(id) {
         <tr><td>Nama</td><td>: ${esc(p.anggota?.nama || "-")}</td></tr>
         <tr><td>Kelas</td><td>: ${esc(p.anggota?.kelas || "-")}</td></tr>
         <tr><td>NIS</td><td>: ${esc(p.anggota?.nis || "-")}</td></tr>
-        <tr><td>Judul Buku</td><td>: ${esc(p.buku?.judul || "-")}</td></tr>
+        <tr><td>Judul Buku</td><td>: ${esc(p.eksemplar?.buku?.judul || "-")}</td></tr>
+        <tr><td>Kode Buku</td><td>: ${esc(p.eksemplar?.kode || "-")}</td></tr>
         <tr><td>Tgl Pinjam</td><td>: ${esc(p.tanggal_pinjam || "-")}</td></tr>
         <tr><td>Jatuh Tempo</td><td>: ${esc(p.tanggal_jatuh_tempo || "-")}</td></tr>
         ${barisKembali}
@@ -762,12 +861,12 @@ async function cetakKartu(id) {
 // ============================================================
 // LABEL BUKU (barcode + keterangan) — untuk ditempel di buku
 // ============================================================
-// Kode buku yang di-encode ke barcode (format: BUK<id>, mis. BUK7)
-function kodeBuku(b) { return "BUK" + b.id; }
-
-// HTML satu label buku (barcode digambar setelahnya via JsBarcode)
-function htmlLabelBuku(b) {
-  const kode = kodeBuku(b);
+// HTML satu label EKSEMPLAR (barcode = kode unik eksemplar)
+function htmlLabelEksemplar(eks) {
+  const kode = eks.kode;
+  const judul = eks.buku?.judul || "";
+  const pengarang = eks.buku?.pengarang || "-";
+  const kategori = eks.buku?.kategori || "";
   return `
     <div class="label-buku">
       <div class="label-head">
@@ -777,10 +876,10 @@ function htmlLabelBuku(b) {
           <div class="label-sub">SMP Tunas Hidup Harapan Kita</div>
         </div>
       </div>
-      <div class="label-judul">${esc(b.judul)}</div>
-      <div class="label-info">${esc(b.pengarang || "-")}${b.kategori ? " • " + esc(b.kategori) : ""}</div>
-      <svg class="label-barcode" data-kode="${kode}"></svg>
-      <div class="label-kode">${kode}</div>
+      <div class="label-judul">${esc(judul)}</div>
+      <div class="label-info">${esc(pengarang)}${kategori ? " • " + esc(kategori) : ""}</div>
+      <svg class="label-barcode" data-kode="${esc(kode)}"></svg>
+      <div class="label-kode">${esc(kode)}</div>
     </div>`;
 }
 
@@ -794,31 +893,54 @@ function gambarBarcodeLabel() {
   });
 }
 
-// Cetak SATU label buku
-async function cetakLabelBuku(id) {
-  const { data: b, error } = await db.from("buku").select("*").eq("id", id).single();
+// Cetak label SEMUA eksemplar dari satu judul (tiap salinan = 1 label unik)
+async function cetakLabelBuku(bukuId) {
+  const { data, error } = await db
+    .from("eksemplar")
+    .select("kode, buku:buku_id(judul,pengarang,kategori)")
+    .eq("buku_id", bukuId).order("kode");
+  if (error) return toast("Error: " + error.message, true);
+  if (!data || !data.length) return toast("Belum ada eksemplar untuk dicetak", true);
+
+  const tunggal = data.length === 1 ? " label-tunggal" : "";
+  document.getElementById("struk").innerHTML =
+    `<div class="label-grid${tunggal}">${data.map(htmlLabelEksemplar).join("")}</div>`;
+  gambarBarcodeLabel();
+  setTimeout(() => window.print(), 380);
+}
+
+// Cetak label SATU eksemplar saja
+async function cetakLabelEksemplar(eksId) {
+  const { data, error } = await db
+    .from("eksemplar")
+    .select("kode, buku:buku_id(judul,pengarang,kategori)")
+    .eq("id", eksId).single();
   if (error) return toast("Error: " + error.message, true);
 
-  document.getElementById("struk").innerHTML = `<div class="label-grid label-tunggal">${htmlLabelBuku(b)}</div>`;
+  document.getElementById("struk").innerHTML =
+    `<div class="label-grid label-tunggal">${htmlLabelEksemplar(data)}</div>`;
   gambarBarcodeLabel();
   setTimeout(() => window.print(), 350);
 }
 
-// Cetak BANYAK label sekaligus (semua buku yang sedang tampil di pencarian)
-async function cetakSemuaLabel() {
-  const keyword = document.getElementById("cari-buku").value.trim();
-  let query = db.from("buku").select("*").order("judul");
-  if (keyword) query = query.ilike("judul", `%${keyword}%`);
-  const { data, error } = await query;
-  if (error) return toast("Error: " + error.message, true);
-  if (!data.length) return toast("Tidak ada buku untuk dicetak", true);
 
-  if (!confirm(`Cetak ${data.length} label buku${keyword ? ' (hasil pencarian "' + keyword + '")' : ""}?`)) return;
+// Cetak label SEMUA eksemplar yang dimiliki perpustakaan (abaikan pencarian)
+async function cetakLabelSemuaBuku() {
+  const { data, error } = await db
+    .from("eksemplar")
+    .select("kode, buku:buku_id(judul,pengarang,kategori)")
+    .order("buku_id")
+    .order("kode")
+    .limit(5000);
+  if (error) return toast("Error: " + error.message, true);
+  if (!data || !data.length) return toast("Belum ada eksemplar untuk dicetak", true);
+
+  if (!confirm(`Cetak label SEMUA buku?\nTotal ${data.length} label akan dicetak.`)) return;
 
   document.getElementById("struk").innerHTML =
-    `<div class="label-grid">${data.map(htmlLabelBuku).join("")}</div>`;
+    `<div class="label-grid">${data.map(htmlLabelEksemplar).join("")}</div>`;
   gambarBarcodeLabel();
-  setTimeout(() => window.print(), 400);
+  setTimeout(() => window.print(), 450);
 }
 
 // ============================================================
@@ -925,90 +1047,87 @@ async function pilihAnggotaDariKode(kodeRaw) {
 // Cari buku berdasarkan kode hasil scan ("BUK<id>") atau judul, lalu pilih di dropdown
 async function pilihBukuDariKode(kodeRaw) {
   const kode = String(kodeRaw).trim();
-  let buku = null;
 
-  if (/^BUK\d+$/i.test(kode)) {
-    // dari barcode label: BUK<id>
-    const id = parseInt(kode.slice(3));
-    const { data, error } = await db.from("buku").select("id,judul,stok").eq("id", id).limit(1);
-    if (error) { tutupScanner(); return toast("Error: " + error.message, true); }
-    if (data && data.length) buku = data[0];
-  } else {
-    // input manual berupa judul (cari yang cocok)
-    const { data, error } = await db.from("buku").select("id,judul,stok").ilike("judul", `%${kode}%`).limit(1);
-    if (error) { tutupScanner(); return toast("Error: " + error.message, true); }
-    if (data && data.length) buku = data[0];
-  }
+  // Cari eksemplar dari kode unik (mis. B001-02). Cocokkan persis lebih dulu.
+  let { data, error } = await db
+    .from("eksemplar")
+    .select("id,kode,status,buku:buku_id(judul)")
+    .ilike("kode", kode).limit(1);
+  if (error) { tutupScanner(); return toast("Error: " + error.message, true); }
 
-  if (!buku) {
-    tutupScanner();
-    return toast(`Buku dengan kode "${kode}" tidak ditemukan`, true);
+  // Kalau tak ketemu, mungkin input manual berupa judul → cari eksemplar tersedia
+  if (!data || !data.length) {
+    const r = await db
+      .from("eksemplar")
+      .select("id,kode,status,buku:buku_id(judul)")
+      .eq("status", "tersedia").limit(50);
+    const cocok = (r.data || []).find((e) => (e.buku?.judul || "").toLowerCase().includes(kode.toLowerCase()));
+    data = cocok ? [cocok] : [];
   }
 
   tutupScanner();
+  if (!data.length) return toast(`Buku dengan kode "${kode}" tidak ditemukan`, true);
 
-  // Stok habis → buku tidak ada di dropdown (yang hanya menampilkan stok > 0)
-  if (buku.stok <= 0) {
-    return toast(`"${buku.judul}" stok habis, tidak bisa dipinjam`, true);
+  const eks = data[0];
+  const judul = eks.buku?.judul || eks.kode;
+  if (eks.status !== "tersedia") {
+    return toast(`"${judul}" (${eks.kode}) sedang dipinjam`, true);
   }
 
-  // Pastikan dropdown buku terisi & berisi buku ini
+  // Pastikan dropdown berisi eksemplar ini, lalu pilih
   const sel = document.getElementById("pinjam-buku");
-  if (![...sel.options].some((o) => o.value == buku.id)) {
+  if (![...sel.options].some((o) => o.value == eks.id)) {
     await isiDropdownPinjam();
   }
-  if ([...sel.options].some((o) => o.value == buku.id)) {
-    sel.value = buku.id;
-    toast("Buku dipilih: " + buku.judul + " ✓");
+  if ([...sel.options].some((o) => o.value == eks.id)) {
+    sel.value = eks.id;
+    toast(`Buku dipilih: ${judul} (${eks.kode}) ✓`);
   } else {
-    toast(`"${buku.judul}" tidak tersedia di daftar pinjam`, true);
+    toast(`"${judul}" tidak tersedia di daftar pinjam`, true);
   }
 }
 
-// Kembalikan buku dari hasil scan: cari peminjaman AKTIF (status 'dipinjam')
-// berdasarkan kode buku, lalu konfirmasi & kembalikan.
+// Kembalikan dari hasil scan: cari peminjaman AKTIF berdasarkan KODE EKSEMPLAR,
+// lalu konfirmasi & kembalikan. Karena kode unik per fisik buku, langsung tepat.
 async function kembalikanDariKode(kodeRaw) {
   const kode = String(kodeRaw).trim();
-  let bukuId = null;
-  let judulBuku = "";
 
-  if (/^BUK\d+$/i.test(kode)) {
-    bukuId = parseInt(kode.slice(3));
-  } else {
-    // cari buku dari judul
-    const { data, error } = await db.from("buku").select("id,judul").ilike("judul", `%${kode}%`).limit(1);
-    if (error) { tutupScanner(); return toast("Error: " + error.message, true); }
-    if (data && data.length) { bukuId = data[0].id; judulBuku = data[0].judul; }
+  // Cari eksemplar dari kode unik
+  const { data: eksList, error: ee } = await db
+    .from("eksemplar").select("id,kode,buku:buku_id(judul)").ilike("kode", kode).limit(1);
+  if (ee) { tutupScanner(); return toast("Error: " + ee.message, true); }
+
+  let eksemplarId = null, judul = "", kodeEks = kode;
+  if (eksList && eksList.length) {
+    eksemplarId = eksList[0].id;
+    judul = eksList[0].buku?.judul || "";
+    kodeEks = eksList[0].kode;
   }
 
-  if (!bukuId) {
+  if (!eksemplarId) {
     tutupScanner();
-    return toast(`Buku dengan kode "${kode}" tidak ditemukan`, true);
+    return toast(`Eksemplar dengan kode "${kode}" tidak ditemukan`, true);
   }
 
-  // Cari peminjaman aktif untuk buku ini (yang paling lama / terlama dipinjam)
+  // Cari peminjaman aktif untuk eksemplar ini
   const { data: pinjam, error } = await db
     .from("peminjaman")
-    .select("id, buku:buku_id(judul), anggota:anggota_id(nama,kelas)")
-    .eq("buku_id", bukuId)
+    .select("id, anggota:anggota_id(nama,kelas)")
+    .eq("eksemplar_id", eksemplarId)
     .eq("status", "dipinjam")
-    .order("tanggal_pinjam", { ascending: true })
     .limit(1);
 
   tutupScanner();
   if (error) return toast("Error: " + error.message, true);
-
   if (!pinjam || !pinjam.length) {
-    return toast(`Tidak ada peminjaman aktif untuk buku ini`, true);
+    return toast(`Eksemplar ${kodeEks} tidak sedang dipinjam`, true);
   }
 
   const p = pinjam[0];
-  const judul = p.buku?.judul || judulBuku || ("Buku #" + bukuId);
   const peminjam = p.anggota?.nama || "(anggota terhapus)";
+  if (!confirm(`Kembalikan buku ini?\n\n📕 ${judul || kodeEks} (${kodeEks})\n👤 Peminjam: ${peminjam}`)) return;
 
-  if (!confirm(`Kembalikan buku ini?\n\n📕 ${judul}\n👤 Peminjam: ${peminjam}`)) return;
-
-  await kembalikanBuku(p.id, !!p.buku);
+  await kembalikanBuku(p.id);
 }
 
 async function stopScanner() {
@@ -1027,12 +1146,19 @@ function tutupScanner() {
 // EKSPOR CSV
 // ============================================================
 async function exportBukuCSV() {
-  const { data, error } = await db.from("buku").select("*").order("judul");
+  // Ekspor per eksemplar (tiap fisik buku 1 baris, lengkap dengan kode & status)
+  const { data, error } = await db
+    .from("eksemplar")
+    .select("kode, status, buku:buku_id(judul,pengarang,kategori,tahun)")
+    .order("kode");
   if (error) return toast("Gagal ekspor: " + error.message, true);
-  const baris = [["ID", "Judul", "Pengarang", "Kategori", "Stok", "Tahun"]];
-  (data || []).forEach((b) => baris.push([b.id, b.judul, b.pengarang, b.kategori, b.stok, b.tahun]));
+  const baris = [["Kode", "Judul", "Pengarang", "Kategori", "Tahun", "Status"]];
+  (data || []).forEach((e) => baris.push([
+    e.kode, e.buku?.judul || "", e.buku?.pengarang || "", e.buku?.kategori || "",
+    e.buku?.tahun || "", e.status,
+  ]));
   unduhCSV("buku.csv", baris);
-  toast(`Ekspor ${(data || []).length} buku ✓`);
+  toast(`Ekspor ${(data || []).length} eksemplar ✓`);
 }
 
 async function exportAnggotaCSV() {
@@ -1047,12 +1173,12 @@ async function exportAnggotaCSV() {
 async function exportPeminjamanCSV() {
   const { data, error } = await db
     .from("peminjaman")
-    .select("id, tanggal_pinjam, tanggal_jatuh_tempo, tanggal_kembali, denda, status, buku:buku_id(judul), anggota:anggota_id(nama,kelas)")
+    .select("id, tanggal_pinjam, tanggal_jatuh_tempo, tanggal_kembali, denda, status, eksemplar:eksemplar_id(kode, buku:buku_id(judul)), anggota:anggota_id(nama,kelas)")
     .order("tanggal_pinjam", { ascending: false });
   if (error) return toast("Gagal ekspor: " + error.message, true);
-  const baris = [["ID", "Buku", "Peminjam", "Kelas", "Tgl Pinjam", "Jatuh Tempo", "Tgl Kembali", "Denda", "Status"]];
+  const baris = [["ID", "Kode Buku", "Buku", "Peminjam", "Kelas", "Tgl Pinjam", "Jatuh Tempo", "Tgl Kembali", "Denda", "Status"]];
   (data || []).forEach((p) => baris.push([
-    p.id, p.buku?.judul || "", p.anggota?.nama || "", p.anggota?.kelas || "",
+    p.id, p.eksemplar?.kode || "", p.eksemplar?.buku?.judul || "", p.anggota?.nama || "", p.anggota?.kelas || "",
     p.tanggal_pinjam, p.tanggal_jatuh_tempo, p.tanggal_kembali, p.denda, p.status,
   ]));
   unduhCSV("peminjaman.csv", baris);
@@ -1069,7 +1195,13 @@ function bukaModal(judul, isiHTML, onSimpan) {
   // Ganti handler lama dengan meng-clone tombol
   const tombolBaru = tombol.cloneNode(true);
   tombol.parentNode.replaceChild(tombolBaru, tombol);
-  tombolBaru.addEventListener("click", onSimpan);
+  // Jika onSimpan null (mis. modal kelola eksemplar), sembunyikan tombol Simpan
+  if (onSimpan) {
+    tombolBaru.style.display = "";
+    tombolBaru.addEventListener("click", onSimpan);
+  } else {
+    tombolBaru.style.display = "none";
+  }
   document.getElementById("modal").classList.remove("hidden");
 }
 
