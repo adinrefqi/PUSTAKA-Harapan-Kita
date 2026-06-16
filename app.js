@@ -822,15 +822,32 @@ async function cetakSemuaLabel() {
 }
 
 // ============================================================
-// SCANNER QR / BARCODE — pilih anggota lewat kamera
+// SCANNER QR / BARCODE — pilih anggota ATAU buku lewat kamera
 // ============================================================
 let scannerAktif = null;
+let scannerMode = "anggota"; // "anggota" | "buku"
 
-async function bukaScanner() {
-  // Pindah ke tab peminjaman & sub "Sedang Dipinjam" agar dropdown siap
-  document.getElementById("scanner-modal").classList.remove("hidden");
-  document.getElementById("scanner-manual").value = "";
+// mode: "anggota" (scan NIS/ANG<id>) atau "buku" (scan BUK<id>)
+async function bukaScanner(mode = "anggota") {
+  scannerMode = mode;
   const status = document.getElementById("scanner-status");
+  const judul = document.getElementById("scanner-judul");
+  const labelManual = document.getElementById("scanner-manual-label");
+  const inputManual = document.getElementById("scanner-manual");
+
+  // Sesuaikan teks sesuai mode
+  if (mode === "buku") {
+    judul.textContent = "📷 Scan Barcode Buku";
+    labelManual.childNodes[0].nodeValue = "Atau ketik / scan kode buku manual:";
+    inputManual.placeholder = "Mis. BUK1 atau judul buku";
+  } else {
+    judul.textContent = "📷 Scan Kartu Anggota";
+    labelManual.childNodes[0].nodeValue = "Atau ketik / scan NIS manual:";
+    inputManual.placeholder = "Masukkan NIS lalu klik Cari";
+  }
+
+  document.getElementById("scanner-modal").classList.remove("hidden");
+  inputManual.value = "";
 
   if (typeof Html5Qrcode === "undefined") {
     status.textContent = "Library scanner gagal dimuat (cek internet). Gunakan input manual di bawah.";
@@ -845,7 +862,9 @@ async function bukaScanner() {
       (teks) => onScanSukses(teks),                 // berhasil baca
       () => {}                                       // abaikan error per-frame
     );
-    status.textContent = "Arahkan kamera ke QR / barcode pada kartu anggota.";
+    status.textContent = mode === "buku"
+      ? "Arahkan kamera ke barcode pada label buku."
+      : "Arahkan kamera ke QR / barcode pada kartu anggota.";
   } catch (e) {
     status.textContent = "Tidak bisa membuka kamera (" + e + "). Gunakan input manual di bawah.";
     scannerAktif = null;
@@ -854,14 +873,16 @@ async function bukaScanner() {
 
 async function onScanSukses(teks) {
   await stopScanner();
-  await pilihAnggotaDariKode(teks);
+  if (scannerMode === "buku") await pilihBukuDariKode(teks);
+  else await pilihAnggotaDariKode(teks);
 }
 
-async function cariAnggotaManual() {
+async function cariManual() {
   const kode = document.getElementById("scanner-manual").value.trim();
-  if (!kode) return toast("Masukkan NIS dulu", true);
+  if (!kode) return toast("Masukkan kode dulu", true);
   await stopScanner();
-  await pilihAnggotaDariKode(kode);
+  if (scannerMode === "buku") await pilihBukuDariKode(kode);
+  else await pilihAnggotaDariKode(kode);
 }
 
 // Cari anggota berdasarkan kode hasil scan (NIS atau "ANG<id>") lalu pilih di dropdown
@@ -892,6 +913,49 @@ async function pilihAnggotaDariKode(kodeRaw) {
 
   const nama = sel.options[sel.selectedIndex]?.text || kode;
   toast("Anggota dipilih: " + nama + " ✓");
+}
+
+// Cari buku berdasarkan kode hasil scan ("BUK<id>") atau judul, lalu pilih di dropdown
+async function pilihBukuDariKode(kodeRaw) {
+  const kode = String(kodeRaw).trim();
+  let buku = null;
+
+  if (/^BUK\d+$/i.test(kode)) {
+    // dari barcode label: BUK<id>
+    const id = parseInt(kode.slice(3));
+    const { data, error } = await db.from("buku").select("id,judul,stok").eq("id", id).limit(1);
+    if (error) { tutupScanner(); return toast("Error: " + error.message, true); }
+    if (data && data.length) buku = data[0];
+  } else {
+    // input manual berupa judul (cari yang cocok)
+    const { data, error } = await db.from("buku").select("id,judul,stok").ilike("judul", `%${kode}%`).limit(1);
+    if (error) { tutupScanner(); return toast("Error: " + error.message, true); }
+    if (data && data.length) buku = data[0];
+  }
+
+  if (!buku) {
+    tutupScanner();
+    return toast(`Buku dengan kode "${kode}" tidak ditemukan`, true);
+  }
+
+  tutupScanner();
+
+  // Stok habis → buku tidak ada di dropdown (yang hanya menampilkan stok > 0)
+  if (buku.stok <= 0) {
+    return toast(`"${buku.judul}" stok habis, tidak bisa dipinjam`, true);
+  }
+
+  // Pastikan dropdown buku terisi & berisi buku ini
+  const sel = document.getElementById("pinjam-buku");
+  if (![...sel.options].some((o) => o.value == buku.id)) {
+    await isiDropdownPinjam();
+  }
+  if ([...sel.options].some((o) => o.value == buku.id)) {
+    sel.value = buku.id;
+    toast("Buku dipilih: " + buku.judul + " ✓");
+  } else {
+    toast(`"${buku.judul}" tidak tersedia di daftar pinjam`, true);
+  }
 }
 
 async function stopScanner() {

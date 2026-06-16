@@ -167,8 +167,11 @@ di header). Ubah kredensial lewat konstanta `LOGIN_USER` & `LOGIN_PASS` di `app.
   **cetak kartu anggota** ber-**QR code & barcode** (encode NIS).
 - **Peminjaman**
   - Pinjam buku (pilih anggota + buku) → **stok berkurang otomatis**.
-  - **Scan QR / barcode** kartu anggota lewat kamera (tombol 📷) untuk
-    memilih anggota otomatis; tersedia juga input NIS manual sebagai cadangan.
+  - **Scan QR / barcode** lewat kamera (tombol 📷):
+    - **Scan Kartu Anggota** → pilih anggota otomatis (dari NIS / `ANG<id>`).
+    - **Scan Barcode Buku** → pilih buku otomatis (dari label `BUK<id>`),
+      jadi tak perlu mencari satu per satu.
+    - Tersedia input manual (NIS / kode buku / judul) sebagai cadangan.
   - **Tanggal jatuh tempo otomatis** (default 7 hari) dengan penanda
     *Sisa N hari* / *Jatuh tempo hari ini* / *Terlambat N hari*.
   - **Denda keterlambatan otomatis** (default Rp500/hari) — perkiraan denda

@@ -157,10 +157,11 @@
         <label>Anggota
           <select id="pinjam-anggota"></select>
         </label>
-        <button class="btn btn-block" onclick="bukaScanner()">📷 Scan QR / Barcode Anggota</button>
+        <button class="btn btn-block" onclick="bukaScanner('anggota')">📷 Scan Kartu Anggota</button>
         <label>Buku (stok &gt; 0)
           <select id="pinjam-buku"></select>
         </label>
+        <button class="btn btn-block" onclick="bukaScanner('buku')">📷 Scan Barcode Buku</button>
         <button class="btn btn-primary btn-block" onclick="pinjamBuku()">📥 Pinjam</button>
       </div>
 
@@ -196,15 +197,15 @@
   <!-- ===================== MODAL SCANNER ===================== -->
   <div id="scanner-modal" class="modal-backdrop hidden">
     <div class="modal">
-      <h3>📷 Scan Kartu Anggota</h3>
+      <h3 id="scanner-judul">📷 Scan</h3>
       <div id="scanner-view" class="scanner-view"></div>
       <p id="scanner-status" class="scanner-status">Memulai kamera...</p>
-      <label>Atau ketik / scan NIS manual:
-        <input type="text" id="scanner-manual" placeholder="Masukkan NIS lalu klik Cari" />
+      <label id="scanner-manual-label">Atau ketik / scan kode manual:
+        <input type="text" id="scanner-manual" placeholder="Masukkan kode lalu klik Cari" />
       </label>
       <div class="modal-actions">
         <button class="btn" onclick="tutupScanner()">Tutup</button>
-        <button class="btn btn-primary" onclick="cariAnggotaManual()">Cari</button>
+        <button class="btn btn-primary" onclick="cariManual()">Cari</button>
       </div>
     </div>
   </div>
